@@ -63,7 +63,7 @@ addons:
       - help2man
       - swig
       - ccache
-    #update: true
+    update: true
 
 before_install:
   - if [ "${TRAVIS_OS_NAME}" == "osx" ]; then
