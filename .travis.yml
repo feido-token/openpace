@@ -71,6 +71,7 @@ before_install:
         ./configure && make;
         sudo make install;
         popd;
+        export PATH="/usr/local/opt/ccache/libexec:$PATH";
     fi
 
 install:
