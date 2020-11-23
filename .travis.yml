@@ -56,13 +56,17 @@ addons:
       - ruby-dev
       - swig
       - xutils-dev
+  homebrew:
+    packages:
+      - libtool
+      - gengetopt
+      - help2man
+      - swig
+      - ccache
+    #update: true
 
 before_install:
   - if [ "${TRAVIS_OS_NAME}" == "osx" ]; then
-        brew update;
-        brew uninstall libtool;
-        brew install libtool;
-        brew install gengetopt help2man swig ccache;
         export PATH="/usr/local/opt/ccache/libexec:$PATH";
     fi
 
