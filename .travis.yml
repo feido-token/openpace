@@ -88,7 +88,7 @@ before_script:
   - if [ -n "${DO_CODECOV}" ]; then
       export CFLAGS="-O0 -fprofile-arcs -ftest-coverage" LDFLAGS="-fprofile-arcs -ftest-coverage";
     elif [ "${TRAVIS_OS_NAME}" != "osx" ]; then
-      export ENABLE_BINDINGS=--enable-python --enable-java --enable-ruby --enable-go";
+      export ENABLE_BINDINGS="--enable-python --enable-java --enable-ruby --enable-go";
       export GCCGOFLAGS="-static-libgcc $CFLAGS";
     fi
   - ./configure --enable-openssl-install $ENABLE_BINDINGS;
