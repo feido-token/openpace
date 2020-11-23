@@ -56,18 +56,21 @@ addons:
       - ruby-dev
       - swig
       - xutils-dev
-  homebrew:
-    packages:
-      - libtool
-      - gengetopt
-      - help2man
-      - swig
-      - ccache
-    update: true
 
 before_install:
   - if [ "${TRAVIS_OS_NAME}" == "osx" ]; then
-        export PATH="/usr/local/opt/ccache/libexec:$PATH";
+        curl https://ftp.gnu.org/gnu/gengetopt/gengetopt-2.23.tar.xz -L --output gengetopt-2.23.tar.xz;
+        tar xfj gengetopt-2.23.tar.xz;
+        pushd gengetopt-2.23;
+        ./configure && make;
+        sudo make install;
+        popd;
+        curl https://ftp.gnu.org/gnu/help2man/help2man-1.47.16.tar.xz -L --output help2man-1.47.16.tar.xz;
+        tar xjf help2man-1.47.16.tar.xz;
+        pushd help2man-1.47.16;
+        ./configure && make;
+        sudo make install;
+        popd;
     fi
 
 install:
@@ -111,11 +114,6 @@ after_success:
 cache:
   apt: true
   ccache: true
-  directories:
-     - $HOME/Library/Caches/Homebrew
-
-before_cache:
-    - brew cleanup
 
 notifications:
   email:
