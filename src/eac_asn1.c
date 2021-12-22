@@ -546,6 +546,7 @@ EAC_CTX_init_ef_cardaccess(const unsigned char * in, size_t in_len,
                 || nid == NID_id_PACE_ECDH_IM_AES_CBC_CMAC_192
                 || nid == NID_id_PACE_ECDH_IM_AES_CBC_CMAC_256) {
             /* PACEInfo */
+            printf("nid %d undef %d", nid, NID_undef);
             hexdump("PACE_INFO", in, info_len);
             check(d2i_PACE_INFO(&tmp_info, &in, info_len),
                     "Could not decode PACE info");

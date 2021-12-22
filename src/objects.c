@@ -675,6 +675,8 @@ EAC_add_all_objects(void)
             || NID_undef == NID_id_DateOfExpiry
             || NID_undef == NID_id_CommunityID) {
         log_err("Error adding objects");
+    } else {
+        log_err("all objects added");
     }
 
     objects_initialized = 1;
