@@ -1,9 +1,9 @@
 name: Coverity CI
 
-# We only want to test official release code, not every pull request.
+# We only want to test master or explicitly via coverity branch
 on:
   push:
-    branches: [action]
+    branches: [master|coverity.*]
 
 
 jobs:
@@ -17,3 +17,4 @@ jobs:
         project: frankmorgner%2Fopenpace
         token: ${{ secrets.COVERITY_SCAN_TOKEN }}
         email: 'frankmorgner@gmail.com'
+        command: 'make'
