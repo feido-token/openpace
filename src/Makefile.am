@@ -154,8 +154,8 @@ install-openssl: $(OPENSSL_LIBCRYPTO_A)
 	$(MAKE) -C $(OPENSSL_DIR) DESTDIR=$(DESTDIR) install_sw >> /tmp/sslout 2>&1 || cat /tmp/sslout
 
 
-# We require the patched headers of OpenSSL
-$(libeac_la_SOURCES) $(nobase_include_HEADERS): patch_openssl
+# We require opensslconf.h, which is created during OpenSSL's build
+$(libeac_la_SOURCES) $(nobase_include_HEADERS): $(OPENSSL_LIBCRYPTO_A)
 
 
 libeac_la_DEPENDENCIES = $(OPENSSL_LIBCRYPTO_A)
