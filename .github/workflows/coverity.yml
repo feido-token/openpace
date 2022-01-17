@@ -3,7 +3,7 @@ name: Coverity CI
 # We only want to test official release code, not every pull request.
 on:
   push:
-    branches: [master]
+    branches: [action]
 
 
 jobs:
