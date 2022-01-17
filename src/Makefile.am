@@ -151,7 +151,7 @@ $(OPENSSL_LIBCRYPTO_A):
 
 # Install OpenSSL
 install-openssl: $(OPENSSL_LIBCRYPTO_A)
-	$(MAKE) -C $(OPENSSL_DIR) INSTALL_PREFIX=$(DESTDIR) install_sw >> /tmp/sslout 2>&1 || cat /tmp/sslout
+	$(MAKE) -C $(OPENSSL_DIR) DESTDIR=$(DESTDIR) install_sw >> /tmp/sslout 2>&1 || cat /tmp/sslout
 
 
 # We require the patched headers of OpenSSL
