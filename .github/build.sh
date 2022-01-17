@@ -11,10 +11,10 @@ case "$1" in
         DEPS="$DEPS gccgo golang-go openjdk-8-jdk openjdk-8-jre-headless python-dev ruby-dev swig xutils-dev doxygen"
         ;;
     mingw-32)
-        DEPS="$DEPS mingw-w64-tools binutils-mingw-w64-i686 gcc-mingw-w64-i686"
+        DEPS="$DEPS mingw-w64-tools libtemplate-perl binutils-mingw-w64-i686 gcc-mingw-w64-i686"
         ;;
     mingw-64)
-        DEPS="$DEPS mingw-w64-tools binutils-mingw-w64-x86-64 gcc-mingw-w64-x86-64"
+        DEPS="$DEPS mingw-w64-tools libtemplate-perl binutils-mingw-w64-x86-64 gcc-mingw-w64-x86-64"
         ;;
 esac
 
