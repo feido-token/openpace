@@ -16,3 +16,4 @@ jobs:
       with:
         project: frankmorgner%2Fopenpace
         token: ${{ secrets.COVERITY_SCAN_TOKEN }}
+        email: 'frankmorgner@gmail.com'
