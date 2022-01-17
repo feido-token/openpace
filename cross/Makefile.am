@@ -17,7 +17,7 @@ osx:
 	$(MAKE) -C $(top_builddir)/src patch_openssl
 	cd $(top_builddir)/src/openssl && KERNEL_BITS=64 ./config --prefix=/Library/OpenPACE
 	$(MAKE) -C $(top_builddir)/src/openssl
-	$(MAKE) -C $(top_builddir)/src/openssl INSTALL_PREFIX=$(OSX_TARGETDIR) install_sw
+	$(MAKE) -C $(top_builddir)/src/openssl DESTDIR=$(OSX_TARGETDIR) install_sw
 	cd $(top_builddir) && ./configure --prefix=/Library/OpenPACE \
 		PKG_CONFIG_SYSROOT_DIR=$(OSX_TARGETDIR) \
 		PKG_CONFIG_PATH=$(OSX_TARGETDIR)/Library/OpenPACE/lib/pkgconfig \
