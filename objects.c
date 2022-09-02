@@ -42,13 +42,11 @@
  * @author Frank Morgner <frankmorgner@gmail.com>
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include <openssl/objects.h>
 #include <eac/objects.h>
 #include "eac_err.h"
+
+#include "sod_asn1.h" // fido-sgx
 
 ASN1_OBJECT *EAC_OBJ_nid2obj(int n)
 {
@@ -56,37 +54,33 @@ ASN1_OBJECT *EAC_OBJ_nid2obj(int n)
 }
 const char *EAC_OBJ_nid2ln(int n)
 {
-    return OBJ_nid2ln(n);
+    return EAC_OBJ_nid2ln(n);
 }
 const char *EAC_OBJ_nid2sn(int n)
 {
-    return OBJ_nid2sn(n);
+    return EAC_OBJ_nid2sn(n);
 }
 int EAC_OBJ_obj2nid(const ASN1_OBJECT *o)
 {
-    return OBJ_obj2nid(o);
-}
-ASN1_OBJECT *EAC_OBJ_txt2obj(const char *s, int no_name)
-{
-    return OBJ_txt2obj(s, no_name);
+    return EAC_OBJ_obj2nid(o);
 }
 int EAC_OBJ_txt2nid(const char *s)
 {
-    return OBJ_txt2nid(s);
+    return EAC_OBJ_txt2nid(s);
 }
 int EAC_OBJ_ln2nid(const char *s)
 {
-    return OBJ_ln2nid(s);
+    return EAC_OBJ_ln2nid(s);
 }
 int EAC_OBJ_sn2nid(const char *s)
 {
-    return OBJ_sn2nid(s);
+    return EAC_OBJ_sn2nid(s);
 }
 
-#ifndef HAVE_PATCHED_OPENSSL
 
 int objects_initialized = 0;
 
+int NID_ldsSecurityObject = NID_undef; // fido-sgx
 int NID_standardizedDomainParameters = NID_undef;
 int NID_id_PK_DH = NID_undef;
 int NID_id_PK_ECDH = NID_undef;
@@ -176,6 +170,12 @@ EAC_add_all_objects(void)
 
     if (objects_initialized)
         return;
+
+    /* fido-sgx */
+#define ASC_ldsSecurityObject		"2.23.136.1.1.1"
+    obj = OBJ_create(ASC_ldsSecurityObject, SN_ldsSecurityObject, SN_ldsSecurityObject);
+    if (obj != NID_undef)
+        NID_ldsSecurityObject = obj;
 
     /* derived from a patched obj_mac.h with the power of regex */
 #define ASC_bsi_de		"0.4.0.127.0.7"
@@ -687,13 +687,3 @@ EAC_remove_all_objects(void)
 
     objects_initialized = 0;
 }
-#else
-void
-EAC_add_all_objects(void)
-{
-}
-void
-EAC_remove_all_objects(void)
-{
-}
-#endif

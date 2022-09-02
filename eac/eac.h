@@ -50,7 +50,8 @@
 extern "C" {
 #endif
 
-#include <eac/cv_cert.h>
+#include "fido_sgx_sod_dg.h"
+
 #include <eac/objects.h>
 #include <openssl/asn1.h>
 #include <openssl/buffer.h>
@@ -87,292 +88,6 @@ enum eac_tr_version {
     EAC_TR_VERSION_2_02,
 };
 
-/**
- * @brief Context for a key agreement and subsequent derivation of session
- * keys.
- * @note The key agreement itself is done via an underlying DH or ECDH.
- */
-typedef struct ka_ctx {
-        /** @brief Digest to use for key derivation */
-        const EVP_MD * md;
-        /** @brief Digest's engine */
-        ENGINE * md_engine;
-        /** @brief Context for CMAC */
-        CMAC_CTX * cmac_ctx;
-        /** @brief Cipher to use for encryption/decryption */
-        const EVP_CIPHER * cipher;
-        /** @brief Cipher's engine */
-        ENGINE * cipher_engine;
-        /** @brief Initialisation vector for encryption/decryption */
-        unsigned char * iv;
-        /** @brief Length of the computed key for the message authentication code */
-        int mac_keylen;
-        /** @brief Length of the computed key for the encryption/decryption */
-        int enc_keylen;
-
-         /**
-         * @brief Generates a key pair for key agreement.
-         *
-         * @param[in] key Object for key generation, usually \c &KA_CTX.key
-         * @param[in] bn_ctx (optional)
-         *
-         * @return Public key or NULL in case of an error
-         */
-        BUF_MEM * (*generate_key)(EVP_PKEY *key, BN_CTX *bn_ctx);
-        /**
-         * @brief Completes a key agreement by computing the shared secret
-         *
-         * @param[in] key Object for key computation, usually \c &KA_CTX.key
-         * @param[in] in Public key from the other party
-         * @param[in] bn_ctx (optional)
-         *
-         * @return Shared secret or NULL in case of an error
-         */
-        BUF_MEM * (*compute_key)(EVP_PKEY *key, const BUF_MEM *in, BN_CTX *bn_ctx);
-
-        /** @brief Container for the key pair used for key agreement */
-        EVP_PKEY *key;
-
-        /** @brief Shared secret computed during the key agreement protocol */
-        BUF_MEM *shared_secret;
-        /** @brief Symmetric key used for encryption/decryption. Derived from KA_CTX.shared_secret. */
-        BUF_MEM *k_enc;
-        /** @brief Symmetric key used for integrity protection. Derived from KA_CTX.shared_secret. */
-        BUF_MEM *k_mac;
-} KA_CTX;
-
-/** @brief Context for the Password Authenticated Connection Establishment protocol
- */
-typedef struct pace_ctx {
-    /** @brief Identifier of the protocol's OID specifying the exact PACE parameters
-     * to use
-     *
-     * The OID of the \c PACEInfo structure in the \c EF.CardAccess is used,
-     * because it is more specific than the OID contained in the (optional) \c
-     * PaceDomainParameterInfo structures.
-     *
-     * Accepts the following values:
-     * - \c NID_id_PACE_DH_GM_3DES_CBC_CBC
-     * - \c NID_id_PACE_DH_GM_AES_CBC_CMAC_128
-     * - \c NID_id_PACE_DH_GM_AES_CBC_CMAC_192
-     * - \c NID_id_PACE_DH_GM_AES_CBC_CMAC_256
-     * - \c NID_id_PACE_ECDH_GM_3DES_CBC_CBC
-     * - \c NID_id_PACE_ECDH_GM_AES_CBC_CMAC_128
-     * - \c NID_id_PACE_ECDH_GM_AES_CBC_CMAC_192
-     * - \c NID_id_PACE_ECDH_GM_AES_CBC_CMAC_256
-     * - \c NID_id_PACE_DH_IM_3DES_CBC_CBC
-     * - \c NID_id_PACE_DH_IM_AES_CBC_CMAC_128
-     * - \c NID_id_PACE_DH_IM_AES_CBC_CMAC_192
-     * - \c NID_id_PACE_DH_IM_AES_CBC_CMAC_256
-     * - \c NID_id_PACE_ECDH_IM_3DES_CBC_CBC
-     * - \c NID_id_PACE_ECDH_IM_AES_CBC_CMAC_128
-     * - \c NID_id_PACE_ECDH_IM_AES_CBC_CMAC_192
-     * - \c NID_id_PACE_ECDH_IM_AES_CBC_CMAC_256
-     */
-    int protocol;
-    /** @brief (currently unused) Version of the PACE protocol, MUST be 1 or 2 */
-    unsigned char version;
-    /** @brief identifier of this PACE context */
-    int id;
-    /** @brief Points to the implementation of a specific mapping
-     *
-     * @see PACE_STEP3A_generate_mapping_data() */
-    BUF_MEM * (*map_generate_key)(const struct pace_ctx *ctx, BN_CTX *bn_ctx);
-    /** @brief Points to the implementation of a specific mapping
-     *
-     * @see PACE_STEP3A_map_generator() */
-    int (*map_compute_key)(struct pace_ctx * ctx, const BUF_MEM * s,
-                    const BUF_MEM * in, BN_CTX *bn_ctx);
-
-    /** @brief PICC's static domain parameters */
-    EVP_PKEY *static_key;
-    /** @brief Key agreement object used with the ephemeral domain parameters */
-    KA_CTX *ka_ctx;
-    /** @brief PICC's decrypted challenge generated in PACE step 1 */
-    BUF_MEM *nonce;
-    /** @brief The own ephemeral public key generated in PACe step 3b */
-    BUF_MEM *my_eph_pubkey;
-} PACE_CTX;
-
-/** @brief Context for the Restricted Identification protocol
- */
-typedef struct ri_ctx {
-    /** @brief Identifier of the hash function
-     * to use
-     *
-     * see tr 03110 p. 60
-     * - \c NID_id_RI_DH_SHA_1
-     * - \c NID_id_RI_DH_SHA_224
-     * - \c NID_id_RI_DH_SHA_256
-     * - \c NID_id_RI_DH_SHA_384
-     * - \c NID_id_RI_DH_SHA_512
-     * - \c NID_id_RI_ECDH_SHA_1
-     * - \c NID_id_RI_ECDH_SHA_224
-     * - \c NID_id_RI_ECDH_SHA_256
-     * - \c NID_id_RI_ECDH_SHA_384
-     * - \c NID_id_RI_ECDH_SHA_512
-     */
-    int protocol;
-    /** @brief identifier of this RI context */
-    int id;
-    /** @brief Digest to use for derivation of I^{sector}_{ID} */
-    const EVP_MD * md;
-    /**
-    * @brief Generates a key pair for key agreement.
-    *
-    * @param[in] key Object for key generation, usually \c &KA_CTX.key
-    * @param[in] bn_ctx (optional)
-    *
-    * @return Public key or NULL in case of an error
-    */
-    BUF_MEM * (*generate_key)(EVP_PKEY *key, BN_CTX *bn_ctx);
-    /**
-     * @brief Completes a key agreement by computing the shared secret
-     *
-     * @param[in] key Object for key computation, usually \c &KA_CTX.key
-     * @param[in] in Public key from the other party
-     * @param[in] bn_ctx (optional)
-     *
-     * @return Shared secret or NULL in case of an error
-     */
-    BUF_MEM * (*compute_key)(EVP_PKEY *key, const BUF_MEM *in, BN_CTX *bn_ctx);
-    /** @brief PICC's static domain parameters */
-    EVP_PKEY *static_key;
-} RI_CTX;
-
-/** @brief callback for finding the CVCA trust anchor */
-typedef CVC_CERT * (*CVC_lookup_cvca_cert) (const unsigned char *chr, size_t car_len);
-
-/** @brief Context for the Terminal Authentication protocol */
-typedef struct ta_ctx {
-    /** @brief (currently unused) Version of the TA protocol, MUST be 1 or 2 */
-    unsigned char version;
-    /** @brief Identifier of the protocol's OID specifying the exact TA
-     * parameters to use.
-     *
-     * Accepts the following values:
-     * - \c NID_id_TA_RSA_v1_5_SHA_1
-     * - \c NID_id_TA_RSA_v1_5_SHA_256
-     * - \c NID_id_TA_RSA_PSS_SHA_1
-     * - \c NID_id_TA_RSA_PSS_SHA_256
-     * - \c NID_id_TA_RSA_v1_5_SHA_512
-     * - \c NID_id_TA_RSA_PSS_SHA_512
-     * - \c NID_id_TA_ECDSA_SHA_1
-     * - \c NID_id_TA_ECDSA_SHA_224
-     * - \c NID_id_TA_ECDSA_SHA_256
-     * - \c NID_id_TA_ECDSA_SHA_384
-     * - \c NID_id_TA_ECDSA_SHA_512
-     */
-    int protocol;
-    /** @brief (currently unused) engine for signing and signature verification */
-    ENGINE *key_engine;
-    /** @brief TA private key used for signing the challenge */
-    EVP_PKEY *priv_key;
-    /** @brief TA public key used for signing the challenge */
-    EVP_PKEY *pub_key;
-    /** @brief PCD's public key extracted from it's CV certificate */
-    BUF_MEM *pk_pcd;
-    /** @brief PICC's challenge */
-    BUF_MEM *nonce;
-    /** @brief Trust anchor for CV certificate validation */
-    CVC_CERT *trust_anchor;
-    /** @brief Most recent verified CV certificate in a certificate chain */
-    CVC_CERT *current_cert;
-    /** @brief When a complete CV certificate chain has been verified, this will be the new trust anchor */
-    CVC_CERT *new_trust_anchor;
-    /** @brief Flags to control some of the behaviour of the CA
-     *
-     * Accepts the following values:
-     * - \c TA_FLAG_SKIP_TIMECHECK
-     */
-    int flags;
-
-    /** @brief Lookup the CVCA trust anchor
-     *
-     * This function is called when a CV certificate is imported although the
-     * terminal authentication was not initialized with a trust anchor.
-     *
-     * @see TA_STEP2_import_certificate()
-     * */
-    CVC_lookup_cvca_cert lookup_cvca_cert;
-} TA_CTX;
-
-/** @brief callback for finding the X.509 trust anchor */
-typedef X509_STORE * (*X509_lookup_csca_cert) (unsigned long issuer_name_hash);
-
-/** @brief Context for the Chip Authentication protocol */
-typedef struct ca_ctx {
-    /** @brief (currently unused) Version of the CA protocol, MUST be 1 or 2 */
-    unsigned char version;
-    /** @brief Identifier of the protocol's OID specifying the exact CA parameters to use.
-     *
-     * Accepts the following values:
-     * - \c NID_id_CA_DH_3DES_CBC_CBC
-     * - \c NID_id_CA_DH_AES_CBC_CMAC_128
-     * - \c NID_id_CA_DH_AES_CBC_CMAC_192
-     * - \c NID_id_CA_DH_AES_CBC_CMAC_256
-     * - \c NID_id_CA_ECDH_3DES_CBC_CBC
-     * - \c NID_id_CA_ECDH_AES_CBC_CMAC_128
-     * - \c NID_id_CA_ECDH_AES_CBC_CMAC_192
-     * - \c NID_id_CA_ECDH_AES_CBC_CMAC_256
-     */
-    int protocol;
-    /** @brief identifier of this CA context */
-    int id;
-    /** @brief Flags to control some of the behaviour of the CA
-     *
-     * Accepts the following values:
-     * - \c CA_FLAG_DISABLE_PASSIVE_AUTH
-     */
-    int flags;
-    /** @brief Key agreement object used with the PICC's private key */
-    KA_CTX *ka_ctx;
-
-    /** @brief callback for finding the X.509 trust anchor
-     *
-     * This function is called when passive authentication with the signed
-     * public key of the card.
-     *
-     * @see CA_get_pubkey()
-     * */
-    X509_lookup_csca_cert lookup_csca_cert;
-} CA_CTX;
-
-/** @brief Context for the Extended Access Control protocol */
-typedef struct eac_ctx {
-    /** @brief Perform EAC conforming to this version of TR-03110 */
-    enum eac_tr_version tr_version;
-    /** @brief Context for various operations with \c BIGNUM objects */
-    BN_CTX * bn_ctx;
-    /** @brief Context for various hashing operations */
-    EVP_MD_CTX * md_ctx;
-    /** @brief Context for various cipher operations */
-    EVP_CIPHER_CTX * cipher_ctx;
-    /** @brief Context for the currently selected Password Authenticated Connection Establishment protocol
-     *
-     * Points to an element of \c pace_ctxs */
-    PACE_CTX *pace_ctx;
-    /** @brief stack of available Password Authenticated Connection Establishment configurations */
-    STACK_OF(PACE_CTX *) pace_ctxs;
-    /** @brief Context for the currently selected Restricted Identification protocol
-     *
-     * Points to an element of \c ri_ctxs */
-    RI_CTX *ri_ctx;
-    /** @brief stack of available Restricted Identification configurations */
-    STACK_OF(RI_CTX *) ri_ctxs;
-    /** @brief Context for the currently selected Terminal Authentication protocol */
-    TA_CTX *ta_ctx;
-    /** @brief Context for the currently selected Chip Authentication protocol
-     *
-     * Points to an element of \c ca_ctxs */
-    CA_CTX *ca_ctx;
-    /** @brief stack of available Chip Authentication configurations */
-    STACK_OF(CA_CTX *) ca_ctxs;
-    /** @brief Context for currently selected secure messaging established with PACE or CA */
-    KA_CTX *key_ctx;
-    /** @brief Send sequence counter */
-    BIGNUM *ssc;
-} EAC_CTX;
 
 /** @brief TR-03110 always uses CMAC of 8 bytes length for AES MAC */
 #define EAC_AES_MAC_LENGTH 8
@@ -398,8 +113,8 @@ void EAC_cleanup(void);
  * @brief Create a new EAC context
  * @return New EAC context or NULL in case of an error
  */
-EAC_CTX *
-EAC_CTX_new(void);
+EPASS_CTX *
+EPASS_CTX_new(void);
 
 /**
  * @brief Free an EAC context.
@@ -408,65 +123,8 @@ EAC_CTX_new(void);
  *
  * @param[in] ctx EAC context to free
  */
-void EAC_CTX_clear_free(EAC_CTX *ctx);
+void EPASS_CTX_clear_free(EPASS_CTX *ctx);
 
-/**
- * @brief Initialize an EAC context for PACE
- *
- * @param[in,out] ctx EAC context to initialize
- * @param[in] protocol Identifier of the protocol's OID specifying the exact PACE parameters
- * @param[in] curve Standardized domain parameter identifier
- *
- * @return 1 on success or 0 in case of an error
- *
- * @see PACE_CTX.protocol lists possible values for \a protocol
- */
-int
-EAC_CTX_init_pace(EAC_CTX *ctx, int protocol, int curve);
-
-/**
- * @brief Initialize an EAC context for TA with the terminal's PKI data. Use
- * either a CV certificate or a known CAR for initialization.
- *
- * @param[in,out] ctx EAC context
- * @param[in] privkey (optional) Private key to the given CV certificate
- * @param[in] privkey_len Length of \a privkey
- * @param[in] cvca (optional) CV certificate to use as trust anchor for verification of other CV certificates
- * @param[in] cvca_len (optional) Length of \a cvca
- *
- * @return 1 on success or 0 in case of an error
- */
-int
-EAC_CTX_init_ta(const EAC_CTX *ctx,
-           const unsigned char *privkey, size_t privkey_len,
-           const unsigned char *cvca, size_t cvca_len);
-
-/**
-  * @brief Initialize an EAC context for Chip Authentication
-  *
-  * @param[in, out] ctx EAC context
-  * @param[in] protocol Identifier of the protocol's OID specifying the exact CA parameters to use
-  * @param[in] curve Standardized domain parameter identifier
-  *
-  * @return 1 on success or 0 in case of an error
-  *
-  * @see CA_CTX.protocol lists possible values for \a protocol
-  */
-int EAC_CTX_init_ca(EAC_CTX *ctx, int protocol, int curve);
-
-/**
- * @brief Initialize an EAC context for Restricted Identification
- *
- * @param[in, out] ctx EAC context
- * @param[in] protocol protocol Identifier of the protocol's OID specifying the exact RI parameters to use
- * @param[in] stnd_dp Standardized domain parameter identifier
- *
- * @return 1 on success or 0 in case of an error
- *
- * @see RI_CTX.protocol lists possible values for \a protocol
- */
-int
-EAC_CTX_init_ri(EAC_CTX *ctx, int protocol, int stnd_dp);
 
 /**
  * @brief Initialize an EAC context for PACE, TA and CA from the data
@@ -478,8 +136,8 @@ EAC_CTX_init_ri(EAC_CTX *ctx, int protocol, int stnd_dp);
  *
  * @return 1 on success or 0 in case of an error
  */
-int EAC_CTX_init_ef_cardaccess(unsigned const char * in, size_t in_len,
-        EAC_CTX *ctx);
+int EPASS_CTX_init_ef_cardaccess(unsigned const char * in, size_t in_len,
+        EPASS_CTX *ctx);
 
 /**
  * @brief Initialize an EAC context for PACE, TA and CA from the data
@@ -493,47 +151,9 @@ int EAC_CTX_init_ef_cardaccess(unsigned const char * in, size_t in_len,
  *
  * @return 1 on success or 0 in case of an error
  */
-int EAC_CTX_init_ef_cardsecurity(
+int EPASS_CTX_init_ef_cardsecurity(
         const unsigned char *ef_cardsecurity, size_t ef_cardsecurity_len,
-        EAC_CTX *ctx);
-
-/**
- * @brief Return the EAC context's CVCA lookup callback
- *
- * @param[in] ctx EAC context
- * @param[in,out] lookup_cvca_cert lookup callback
- *
- * @return 1 on success or 0 in case of an error
- */
-int EAC_CTX_get_cvca_lookup(const EAC_CTX *ctx, CVC_lookup_cvca_cert *lookup_cvca_cert);
-/**
- * @brief Set the CVCA lookup callback
- *
- * @param[in] ctx EAC context
- * @param[in] lookup_cvca_cert lookup callback
- *
- * @return 1 on success or 0 in case of an error
- */
-int EAC_CTX_set_cvca_lookup(EAC_CTX *ctx, CVC_lookup_cvca_cert lookup_cvca_cert);
-/**
- * @brief Return the default lookup of the country verifying CA
- *
- * The default callback looks at /etc/eac/$issuer_name_hash.cer for the CSCA
- * certificate, where $issuer_name_hash is an eight character lower hex value
- * of the CSCA subject name.
- *
- * @return default lookup of the country verifying CA
- *
- * @see `openssl x509 -in CERTIFICATE.cer -inform DER -hash -noout` to obtain the hash value.
- */
-CVC_lookup_cvca_cert EAC_get_default_cvca_lookup(void);
-
-/**
- * @brief Set directory for \c EAC_get_default_cvca_lookup()
- *
- * @param cvc_default_dir
- */
-void EAC_set_cvc_default_dir(const char *default_dir);
+        EPASS_CTX *ctx);
 
 /**
  * @brief Get the CSCA lookup callback
@@ -543,7 +163,7 @@ void EAC_set_cvc_default_dir(const char *default_dir);
  *
  * @return 1 on success or 0 in case of an error
  */
-int EAC_CTX_get_csca_lookup_cert(const EAC_CTX *ctx, X509_lookup_csca_cert *lookup_cvca_cert);
+int EPASS_CTX_get_csca_lookup_cert(const EPASS_CTX *ctx, X509_lookup_csca_cert *lookup_cvca_cert);
 /**
  * @brief Set the CSCA lookup callback
  *
@@ -552,7 +172,7 @@ int EAC_CTX_get_csca_lookup_cert(const EAC_CTX *ctx, X509_lookup_csca_cert *look
  *
  * @return 1 on success or 0 in case of an error
  */
-int EAC_CTX_set_csca_lookup_cert(EAC_CTX *ctx, X509_lookup_csca_cert lookup_cvca_cert);
+int EPASS_CTX_set_csca_lookup_cert(EPASS_CTX *ctx, X509_lookup_csca_cert lookup_cvca_cert);
 /**
  * @brief Return the default lookup of the country signing CA
  *
@@ -588,7 +208,7 @@ void EAC_set_x509_default_dir(const char *default_dir);
  * @return Padded input or NULL in case of an error
  */
 BUF_MEM *
-EAC_add_iso_pad(const EAC_CTX *ctx, const BUF_MEM * unpadded);
+EAC_add_iso_pad(const EPASS_CTX *ctx, const BUF_MEM * unpadded);
 /**
  * @brief Remove ISO/IEC 9797-1 padding method 2 from a message
  *
@@ -606,7 +226,7 @@ EAC_remove_iso_pad(const BUF_MEM * padded);
  *
  * @return 1 on success or 0 in case of an error
  */
-int EAC_increment_ssc(const EAC_CTX *ctx);
+int EAC_increment_ssc(const EPASS_CTX *ctx);
 
 /**
  * @brief Reset the Send Sequence Counter
@@ -615,7 +235,7 @@ int EAC_increment_ssc(const EAC_CTX *ctx);
  *
  * @return 1 on success or 0 in case of an error
  */
-int EAC_reset_ssc(const EAC_CTX *ctx);
+int EAC_reset_ssc(const EPASS_CTX *ctx);
 /**
  * @brief Set the Send Sequence Counter
  *
@@ -624,7 +244,7 @@ int EAC_reset_ssc(const EAC_CTX *ctx);
  *
  * @return 1 on success or 0 in case of an error
  */
-int EAC_set_ssc(const EAC_CTX *ctx, unsigned long ssc);
+int EAC_set_ssc(const EPASS_CTX *ctx, unsigned long ssc);
 
 /**
  * @brief Encrypts data according to TR-03110 F.2.
@@ -637,7 +257,7 @@ int EAC_set_ssc(const EAC_CTX *ctx, unsigned long ssc);
  * @note \a data must already be padded to block length
  */
 BUF_MEM *
-EAC_encrypt(const EAC_CTX *ctx, const BUF_MEM *data);
+EAC_encrypt(const EPASS_CTX *ctx, const BUF_MEM *data);
 
 /**
  * @brief Decrypt data according to TR-03110 F.2.
@@ -650,7 +270,7 @@ EAC_encrypt(const EAC_CTX *ctx, const BUF_MEM *data);
  * @note \a data must already be padded to block length
  */
 BUF_MEM *
-EAC_decrypt(const EAC_CTX *ctx, const BUF_MEM *data);
+EAC_decrypt(const EPASS_CTX *ctx, const BUF_MEM *data);
 
 /**
  * @brief Authenticate data according to TR-03110 F.2.
@@ -663,7 +283,7 @@ EAC_decrypt(const EAC_CTX *ctx, const BUF_MEM *data);
  * @note \a data must already be padded to block length
  */
 BUF_MEM *
-EAC_authenticate(const EAC_CTX *ctx, const BUF_MEM *data);
+EAC_authenticate(const EPASS_CTX *ctx, const BUF_MEM *data);
 /**
  * @brief Verify authenticated data according to TR-03110 F.2
  *
@@ -674,7 +294,7 @@ EAC_authenticate(const EAC_CTX *ctx, const BUF_MEM *data);
  * @return 1 if the MAC can be correctly verified, 0 otherwise
  */
 int
-EAC_verify_authentication(const EAC_CTX *ctx, const BUF_MEM *data,
+EAC_verify_authentication(const EPASS_CTX *ctx, const BUF_MEM *data,
         const BUF_MEM *mac);
 
 /**
@@ -687,7 +307,7 @@ EAC_verify_authentication(const EAC_CTX *ctx, const BUF_MEM *data,
  * @return Compressed public key or NULL in case of an error
  */
 BUF_MEM *
-EAC_Comp(const EAC_CTX *ctx, int id, const BUF_MEM *pub);
+EAC_Comp(const EPASS_CTX *ctx, int id, const BUF_MEM *pub);
 
 /**
  * @brief Compute the hash of a CV certificate description.
@@ -724,7 +344,7 @@ EAC_hash_certificate_description(const unsigned char *cert_desc,
  * @return 1 on success or 0 in case of an error
  */
 int
-EAC_CTX_set_encryption_ctx(EAC_CTX *ctx, int id);
+EPASS_CTX_set_encryption_ctx(EPASS_CTX *ctx, int id);
 
 /** @} ***********************************************************************/
 
@@ -742,7 +362,7 @@ EAC_CTX_set_encryption_ctx(EAC_CTX *ctx, int id);
  *
  * @return 1 on success or 0 in case of an error
  */
-int EAC_CTX_print_private(BIO *out, const EAC_CTX *ctx, int indent);
+int EPASS_CTX_print_private(BIO *out, const EPASS_CTX *ctx, int indent);
 /**
  * @brief Prints buffer
  *

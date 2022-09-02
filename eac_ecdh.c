@@ -43,14 +43,9 @@
  * @author Dominik Oepen <oepen@informatik.hu-berlin.de>
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include "eac_ecdh.h"
 #include "eac_err.h"
 #include "misc.h"
-#include <eac/pace.h>
 #include <openssl/ecdh.h>
 #include <openssl/evp.h>
 #include <openssl/objects.h>

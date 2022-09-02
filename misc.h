@@ -46,10 +46,6 @@
 #ifndef MISC_H
 #define MISC_H
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include <openssl/bn.h>
 #include <openssl/buffer.h>
 #include <openssl/ec.h>
@@ -105,11 +101,7 @@ BN_bn2buf(const BIGNUM *bn);
 BUF_MEM *
 EC_POINT_point2mem(const EC_KEY * ecdh, BN_CTX * bn_ctx, const EC_POINT * ecp);
 
-#ifdef HAVE_EC_KEY_METHOD
 const EC_KEY_METHOD *EC_KEY_OpenSSL_Point(void);
-#else
-const ECDH_METHOD *ECDH_OpenSSL_Point(void);
-#endif
 
 void
 EAC_add_all_objects(void);

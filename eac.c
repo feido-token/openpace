@@ -43,25 +43,23 @@
  * @author Dominik Oepen <oepen@informatik.hu-berlin.de>
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include "eac_err.h"
 #include "eac_kdf.h"
 #include "eac_lib.h"
 #include "eac_util.h"
 #include "misc.h"
 #include <eac/eac.h>
-#include <eac/pace.h>
 #include <openssl/crypto.h>
 
 BUF_MEM *
-EAC_add_iso_pad(const EAC_CTX *eac_ctx, const BUF_MEM * m)
+EAC_add_iso_pad(const EPASS_CTX *epass_ctx, const BUF_MEM * m)
 {
-    check_return(eac_ctx && eac_ctx->key_ctx, "Invalid arguments");
+    if(!epass_ctx || !epass_ctx->key_ctx) {
+        printf("Invalid arguments\n");
+        return NULL;
+    }
 
-    return add_iso_pad(m, EVP_CIPHER_block_size(eac_ctx->key_ctx->cipher));
+    return add_iso_pad(m, EVP_CIPHER_block_size(epass_ctx->key_ctx->cipher));
 }
 
 BUF_MEM *
@@ -92,7 +90,7 @@ err:
     return out;
 }
 
-int EAC_increment_ssc(const EAC_CTX *ctx)
+int EAC_increment_ssc(const EPASS_CTX *ctx)
 {
     if (!ctx)
         return 0;
@@ -100,17 +98,15 @@ int EAC_increment_ssc(const EAC_CTX *ctx)
     return BN_add_word(ctx->ssc, 1);
 }
 
-int EAC_reset_ssc(const EAC_CTX *ctx)
+int EAC_reset_ssc(const EPASS_CTX *ctx)
 {
     if (!ctx)
         return 0;
 
-    BN_zero(ctx->ssc);
-
-    return 1;
+    return BN_zero(ctx->ssc);
 }
 
-int EAC_set_ssc(const EAC_CTX *ctx, unsigned long ssc)
+int EAC_set_ssc(const EPASS_CTX *ctx, unsigned long ssc)
 {
     if (!ctx)
         return 0;
@@ -119,29 +115,29 @@ int EAC_set_ssc(const EAC_CTX *ctx, unsigned long ssc)
 }
 
 BUF_MEM *
-EAC_encrypt(const EAC_CTX *ctx, const BUF_MEM *data)
+EAC_encrypt(const EPASS_CTX *ctx, const BUF_MEM *data)
 {
     check_return((ctx && ctx->key_ctx), "Invalid arguments");
 
-    if (!update_iv(ctx->key_ctx, ctx->cipher_ctx, ctx->ssc))
+    if (!update_iv(ctx->key_ctx, NULL, ctx->ssc))
         return NULL;
 
-    return cipher_no_pad(ctx->key_ctx, ctx->cipher_ctx, ctx->key_ctx->k_enc, data, 1);
+    return cipher_no_pad(ctx->key_ctx, NULL, ctx->key_ctx->k_enc, data, 1);
 }
 
 BUF_MEM *
-EAC_decrypt(const EAC_CTX *ctx, const BUF_MEM *data)
+EAC_decrypt(const EPASS_CTX *ctx, const BUF_MEM *data)
 {
     check_return((ctx && ctx->key_ctx), "Invalid arguments");
 
-    if (!update_iv(ctx->key_ctx, ctx->cipher_ctx, ctx->ssc))
+    if (!update_iv(ctx->key_ctx, NULL, ctx->ssc))
         return NULL;
 
-    return cipher_no_pad(ctx->key_ctx, ctx->cipher_ctx, ctx->key_ctx->k_enc, data, 0);
+    return cipher_no_pad(ctx->key_ctx, NULL, ctx->key_ctx->k_enc, data, 0);
 }
 
 BUF_MEM *
-EAC_authenticate(const EAC_CTX *ctx, const BUF_MEM *data)
+EAC_authenticate(const EPASS_CTX *ctx, const BUF_MEM *data)
 {
     int l;
     BUF_MEM *out = NULL, *to_authenticate = NULL;
@@ -173,7 +169,7 @@ err:
 }
 
 int
-EAC_verify_authentication(const EAC_CTX *ctx, const BUF_MEM *data,
+EAC_verify_authentication(const EPASS_CTX *ctx, const BUF_MEM *data,
         const BUF_MEM *mac)
 {
     BUF_MEM *my_mac = NULL;
@@ -195,32 +191,15 @@ err:
 }
 
 BUF_MEM *
-EAC_Comp(const EAC_CTX *ctx, int id, const BUF_MEM *pub)
+EAC_Comp(const EPASS_CTX *ctx, int id, const BUF_MEM *pub)
 {
     switch (id) {
-        case EAC_ID_PACE:
-            if (!ctx || !ctx->pace_ctx || !ctx->pace_ctx->ka_ctx) {
-                log_err("Invalid arguments");
-                return 0;
-            }
-            return Comp(ctx->pace_ctx->ka_ctx->key, pub, ctx->bn_ctx, ctx->md_ctx);
-
-        case EAC_ID_TA:
-            if (!ctx || !ctx->ta_ctx) {
-                log_err("Invalid arguments");
-                return 0;
-            }
-            if (ctx->ta_ctx->priv_key)
-                return Comp(ctx->ta_ctx->priv_key, pub, ctx->bn_ctx, ctx->md_ctx);
-            else
-                return Comp(ctx->ta_ctx->pub_key, pub, ctx->bn_ctx, ctx->md_ctx);
-
         case EAC_ID_CA:
             if (!ctx || !ctx->ca_ctx || !ctx->ca_ctx->ka_ctx) {
                 log_err("Invalid arguments");
                 return 0;
             }
-            return Comp(ctx->ca_ctx->ka_ctx->key, pub, ctx->bn_ctx, ctx->md_ctx);
+            return Comp(ctx->ca_ctx->ka_ctx->key, pub, NULL, NULL);
 
         default:
             log_err("Invalid arguments");
@@ -243,20 +222,11 @@ EAC_hash_certificate_description(const unsigned char *cert_desc,
 }
 
 int
-EAC_CTX_set_encryption_ctx(EAC_CTX *ctx, int id)
+EPASS_CTX_set_encryption_ctx(EPASS_CTX *ctx, int id)
 {
     const KA_CTX *new;
 
     switch (id) {
-        case EAC_ID_PACE:
-            if (!ctx || !ctx->pace_ctx || !ctx->pace_ctx->ka_ctx ||
-                    !ctx->pace_ctx->ka_ctx->k_enc || !ctx->pace_ctx->ka_ctx->k_mac) {
-                log_err("Invalid arguments");
-                return 0;
-            }
-            new = ctx->pace_ctx->ka_ctx;
-            break;
-
         case EAC_ID_CA:
             if (!ctx || !ctx->ca_ctx || !ctx->ca_ctx->ka_ctx ||
                     !ctx->ca_ctx->ka_ctx->k_enc || !ctx->ca_ctx->ka_ctx->k_mac) {

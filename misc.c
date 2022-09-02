@@ -43,10 +43,6 @@
  * @author Dominik Oepen <oepen@informatik.hu-berlin.de>
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include "eac_err.h"
 #include "misc.h"
 #include <limits.h>
@@ -102,8 +98,6 @@ struct ecdh_method
     char *app_data;
 };
 
-#ifdef HAVE_EC_KEY_METHOD
-
 static const EC_KEY_METHOD openssl_ec_key_meth_point = {
     "OpenSSL EC_KEY method with Point",
     0,
@@ -122,24 +116,6 @@ const EC_KEY_METHOD *EC_KEY_OpenSSL_Point(void)
     return &openssl_ec_key_meth_point;
 }
 
-#else
-
-static ECDH_METHOD openssl_ecdh_meth_point = {
-    "OpenSSL ECDH method with Point",
-    ecdh_compute_key_point,
-#if 0
-    NULL, /* init   */
-    NULL, /* finish */
-#endif
-    0,    /* flags  */
-    NULL  /* app_data */
-};
-
-const ECDH_METHOD *ECDH_OpenSSL_Point(void)
-{
-    return &openssl_ecdh_meth_point;
-}
-#endif
 
 int new_ecdh_compute_key_point(unsigned char **psec, size_t *pseclen, const
         EC_POINT *pub_key, const EC_KEY *ecdh)

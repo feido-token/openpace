@@ -46,7 +46,7 @@
 #ifndef PACE_KDF_H_
 #define PACE_KDF_H_
 
-#include <eac/pace.h>
+#include "fido_sgx_sod_dg.h"
 #include <openssl/buffer.h>
 #include <openssl/evp.h>
 #include <stdint.h>
@@ -85,13 +85,6 @@ kdf_enc(const BUF_MEM *nonce, const KA_CTX *ctx, EVP_MD_CTX *md_ctx);
  */
 BUF_MEM *
 kdf_mac(const BUF_MEM *nonce, const KA_CTX *ctx, EVP_MD_CTX *md_ctx);
-/**
- * @brief Key derivation function from a password pi
- *
- * @see kdf()
- */
-BUF_MEM *
-kdf_pi(const PACE_SEC *pi, const BUF_MEM *nonce, const KA_CTX *ctx, EVP_MD_CTX *md_ctx);
 /** @} ***********************************************************************/
 
 #endif /*PACE_KDF_H_*/

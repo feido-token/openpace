@@ -43,10 +43,6 @@
  * @author Dominik Oepen <oepen@informatik.hu-berlin.de>
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include "ca_lib.h"
 #include "eac_dh.h"
 #include "eac_ecdh.h"
@@ -54,25 +50,18 @@
 #include "eac_lib.h"
 #include "eac_util.h"
 #include "misc.h"
-#include "pace_lib.h"
-#include "ssl_compat.h"
-#include "ta_lib.h"
-#include <eac/ca.h>
-#include <eac/cv_cert.h>
+#include "fido_sgx_ca.h"
 #include <eac/eac.h>
-#include <eac/pace.h>
-#include <eac/ri.h>
-#include <eac/ta.h>
 #include <openssl/buffer.h>
 #include <openssl/crypto.h>
 #include <string.h>
+
 
 void EAC_init(void)
 {
     OpenSSL_add_all_algorithms();
     EAC_add_all_objects();
-    EAC_set_x509_default_dir(X509DIR);
-    EAC_set_cvc_default_dir(CVCDIR);
+    //EAC_set_x509_default_dir(X509DIR);
 }
 
 void EAC_cleanup(void)
@@ -81,184 +70,36 @@ void EAC_cleanup(void)
     EVP_cleanup();
 }
 
-EAC_CTX *
-EAC_CTX_new(void)
+EPASS_CTX *
+EPASS_CTX_new(void)
 {
-    EAC_CTX *ctx = OPENSSL_zalloc(sizeof(EAC_CTX));
+    EPASS_CTX *ctx = OPENSSL_zalloc(sizeof(EPASS_CTX));
     if (!ctx)
         return NULL;
 
-    ctx->bn_ctx = BN_CTX_new();
+//    ctx->bn_ctx = BN_CTX_new();
     ctx->ca_ctxs = (STACK_OF(CA_CTX *)) sk_new_null();
-    ctx->cipher_ctx = EVP_CIPHER_CTX_new();
-    ctx->md_ctx = EVP_MD_CTX_create();
-    ctx->pace_ctxs = (STACK_OF(PACE_CTX *)) sk_new_null();
-    ctx->ri_ctxs = (STACK_OF(RI_CTX *)) sk_new_null();
+//    ctx->cipher_ctx = EVP_CIPHER_CTX_new();
+//    ctx->md_ctx = EVP_MD_CTX_create();
     ctx->ssc = BN_new();
-    ctx->ta_ctx = TA_CTX_new();
 
-    if (!ctx->bn_ctx || !ctx->md_ctx || !ctx->pace_ctxs
-            || !ctx->ta_ctx || !ctx->ca_ctxs || !ctx->cipher_ctx
-            || !ctx->ri_ctxs || !ctx->ssc)
+    //!ctx->bn_ctx || !ctx->md_ctx || !ctx->cipher_ctx
+    if (!ctx->ca_ctxs || !ctx->ssc)
         goto err;
 
-    EVP_CIPHER_CTX_init(ctx->cipher_ctx);
-    ctx->tr_version = EAC_TR_VERSION_2_02;
+//    EVP_CIPHER_CTX_init(ctx->cipher_ctx);
+//    ctx->tr_version = EAC_TR_VERSION_2_02;
+
+    ctx->lookup_csca_cert = EAC_get_default_csca_lookup();
 
     return ctx;
 
 err:
-    EAC_CTX_clear_free(ctx);
+    EPASS_CTX_clear_free(ctx);
     return NULL;
 }
 
-int
-EAC_CTX_init_pace(EAC_CTX *ctx, int protocol, int curve)
-{
-    PACE_CTX *pace_ctx = NULL;
-    int r = 0;
 
-    if (!ctx) {
-        log_err("Invalid arguments");
-        goto err;
-    }
-
-    pace_ctx = PACE_CTX_new();
-    if (!pace_ctx
-            || !PACE_CTX_set_protocol(pace_ctx, protocol, ctx->tr_version)
-            || !EVP_PKEY_set_std_dp(pace_ctx->static_key, curve)) {
-        log_err("Could not initialize PACE context");
-        goto err;
-    }
-
-    r = 1;
-
-err:
-    if (r && sk_push((_STACK *) ctx->pace_ctxs, pace_ctx)) {
-        ctx->pace_ctx = pace_ctx;
-    } else {
-        /* either an error occurred before
-         * or we could not push it onto the stack */
-        r = 0;
-        PACE_CTX_clear_free(pace_ctx);
-    }
-
-    return r;
-}
-
-int
-EAC_CTX_init_ta(const EAC_CTX *ctx,
-           const unsigned char *privkey, size_t privkey_len,
-           const unsigned char *cvca, size_t cvca_len)
-{
-    CVC_CERT *ta_cvca = NULL;
-    int r = 0;
-
-    check(ctx && ctx->ta_ctx, "Invalid arguments");
-
-    if (privkey && privkey_len) {
-        if (ctx->ta_ctx->priv_key)
-            EVP_PKEY_free(ctx->ta_ctx->priv_key);
-        ctx->ta_ctx->priv_key = d2i_AutoPrivateKey(&ctx->ta_ctx->priv_key,
-                &privkey, privkey_len);
-        if (!ctx->ta_ctx->priv_key)
-            goto err;
-    }
-
-    if (cvca && cvca_len) {
-        ta_cvca = CVC_d2i_CVC_CERT(&ta_cvca, &cvca, cvca_len);
-    }
-    r = TA_CTX_set_trust_anchor(ctx->ta_ctx, ta_cvca, ctx->bn_ctx);
-
-err:
-    if (ta_cvca)
-        CVC_CERT_free(ta_cvca);
-
-    return r;
-}
-
-int
-EAC_CTX_init_ca(EAC_CTX *ctx, int protocol, int curve)
-{
-    CA_CTX *ca_ctx = NULL;
-    int r = 0;
-
-    if (!ctx || !ctx->ca_ctxs) {
-        log_err("Invalid arguments");
-        goto err;
-    }
-
-    ca_ctx = CA_CTX_new();
-    check(ca_ctx, "Could not create CA context");
-
-    if (!CA_CTX_set_protocol(ca_ctx, protocol)
-            || !EVP_PKEY_set_std_dp(ca_ctx->ka_ctx->key, curve))
-        goto err;
-
-    r = 1;
-
-err:
-    if (r && sk_push((_STACK *) ctx->ca_ctxs, ca_ctx)) {
-        ctx->ca_ctx = ca_ctx;
-    } else {
-        /* either an error occurred before
-         * or we could not push it onto the stack */
-        r = 0;
-        CA_CTX_clear_free(ca_ctx);
-    }
-
-    return r;
-}
-
-int
-EAC_CTX_init_ri(EAC_CTX *ctx, int protocol, int stnd_dp)
-{
-    BUF_MEM *pubkey = NULL;
-    RI_CTX *ri_ctx = NULL;
-    int r = 0;
-
-    if (!ctx || !ctx->ri_ctxs) {
-        log_err("Invalid arguments");
-        goto err;
-    }
-
-    ri_ctx = RI_CTX_new();
-    check(ri_ctx, "Could not create RI context");
-
-    if (!RI_CTX_set_protocol(ri_ctx, protocol)
-               || !EVP_PKEY_set_std_dp(ri_ctx->static_key, stnd_dp))
-            goto err;
-
-    if (!ri_ctx->generate_key)
-        goto err;
-
-    pubkey = ri_ctx->generate_key(ri_ctx->static_key, ctx->bn_ctx);
-    if (!pubkey)
-        goto err;
-    else /* We do not need the buffered public key and throw it away immediately */
-        BUF_MEM_clear_free(pubkey);
-
-    r = 1;
-
-err:
-    if (r && sk_push((_STACK *) ctx->ri_ctxs, ri_ctx)) {
-        ctx->ri_ctx = ri_ctx;
-    } else {
-        /* either an error occurred before
-         * or we could not push it onto the stack */
-        r = 0;
-        RI_CTX_clear_free(ri_ctx);
-    }
-
-    return r;
-}
-
-
-static void
-wrap_pace_ctx_clear_free(void * ctx)
-{
-    PACE_CTX_clear_free(ctx);
-}
 
 static void
 wrap_ca_ctx_clear_free(void *ctx)
@@ -266,29 +107,30 @@ wrap_ca_ctx_clear_free(void *ctx)
     CA_CTX_clear_free(ctx);
 }
 
-static void
-wrap_ri_ctx_clear_free(void * ctx)
-{
-    RI_CTX_clear_free(ctx);
-}
-
 void
-EAC_CTX_clear_free(EAC_CTX *ctx)
+EPASS_CTX_clear_free(EPASS_CTX *ctx)
 {
     if (ctx) {
+#if 0
         if (ctx->bn_ctx)
             BN_CTX_free(ctx->bn_ctx);
         if (ctx->md_ctx)
             EVP_MD_CTX_destroy(ctx->md_ctx);
         if (ctx->cipher_ctx)
             EVP_CIPHER_CTX_free(ctx->cipher_ctx);
-        sk_pop_free((_STACK *) ctx->pace_ctxs, wrap_pace_ctx_clear_free);
+#endif
         sk_pop_free((_STACK *) ctx->ca_ctxs, wrap_ca_ctx_clear_free);
-        sk_pop_free((_STACK *) ctx->ri_ctxs, wrap_ri_ctx_clear_free);
-        TA_CTX_clear_free(ctx->ta_ctx);
         KA_CTX_clear_free(ctx->key_ctx);
         if (ctx->ssc)
             BN_clear_free(ctx->ssc);
+
+        // At the moment we inefficiently copy the DG data buffers into new
+        // (malloced) heap buffers
+        for (unsigned int i=0; i<ctx->dg_num; i++) {
+            free(ctx->dgs[i]);
+            ctx->dgs[i] = NULL;
+        }
+
         OPENSSL_free(ctx);
     }
 }
@@ -370,6 +212,8 @@ KA_CTX_clear_free(KA_CTX *ctx)
             CMAC_CTX_free(ctx->cmac_ctx);
         if (ctx->key)
             EVP_PKEY_free(ctx->key);
+        if (ctx->peer_pubkey)
+            EVP_PKEY_free(ctx->peer_pubkey);
         if (ctx->shared_secret) {
             OPENSSL_cleanse(ctx->shared_secret->data, ctx->shared_secret->max);
             BUF_MEM_free(ctx->shared_secret);

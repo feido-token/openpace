@@ -46,7 +46,8 @@
 #ifndef CA_LIB_H_
 #define CA_LIB_H_
 
-#include <eac/eac.h>
+//#include <eac/eac.h>
+#include "fido_sgx_sod_dg.h"
 
 #ifdef __cplusplus
 extern "C" {

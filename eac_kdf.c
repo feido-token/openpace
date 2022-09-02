@@ -43,20 +43,12 @@
  * @author Dominik Oepen <oepen@informatik.hu-berlin.de>
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include "eac_err.h"
 #include "eac_kdf.h"
 #include "eac_util.h"
 #include "misc.h"
-#include "ssl_compat.h"
-#ifdef _WIN32
-#include <winsock2.h>
-#else
-#include <arpa/inet.h>
-#endif
+//#include <arpa/inet.h> // htonl()
+#include "sgx_epid/endian_convert.h"
 #include <openssl/crypto.h>
 #include <string.h>
 
@@ -67,33 +59,51 @@ kdf(const BUF_MEM *key, const BUF_MEM *nonce, const uint32_t counter,
     size_t inlen, key_len;
     BUF_MEM *in = NULL, *digest = NULL, *out = NULL;
 
-    check((key && ka_ctx->md && ka_ctx->cipher), "Invalid arguments");
+    // TODO !!
+    if(!key || !ka_ctx->md || !ka_ctx->cipher) {
+        printf("Invalid arguments\n");
+        goto err;
+    }
 
     key_len = EVP_CIPHER_key_length(ka_ctx->cipher);
-    check(0 < EVP_MD_size(ka_ctx->md)
-            && key_len <= (size_t) EVP_MD_size(ka_ctx->md),
-            "Message digest not suitable for cipher");
+    if(0 >= EVP_MD_size(ka_ctx->md)
+            || key_len > (size_t) EVP_MD_size(ka_ctx->md)) {
+        printf("Message digest not suitable for cipher\n");
+        goto err;
+    }
 
     in = BUF_MEM_new();
-    check(in, "Failed to allocate memory");
+    if(!in) {
+        printf("Failed to allocate memory\n");
+        goto err;
+    }
 
     /* Concatenate secret || nonce || counter
      * nonce is optional */
     if (nonce) {
         inlen = key->length + nonce->length + sizeof counter;
-        check(BUF_MEM_grow(in, inlen), "Failed to allocate memory");
+        if(!BUF_MEM_grow(in, inlen)) {
+            printf("Failed to allocate memory\n");
+            goto err;
+        }
         memcpy(in->data, key->data, key->length);
         memcpy(in->data + key->length, nonce->data, nonce->length);
         memcpy(in->data + key->length + nonce->length, &counter, sizeof counter);
     } else {
         inlen = key->length + sizeof counter;
-        check(BUF_MEM_grow(in, inlen), "Failed to allocate memory");
+        if(!BUF_MEM_grow(in, inlen)) {
+            printf("Failed to allocate memory\n");
+            goto err;
+        } 
         memcpy(in->data, key->data, key->length);
         memcpy(in->data + key->length, &counter, sizeof counter);
     }
 
     digest = hash(ka_ctx->md, md_ctx, ka_ctx->md_engine, in);
-    check(digest, "Failed to compute hash");
+    if(!digest) {
+        printf("Failed to compute hash\n");
+        goto err;
+    }
 
     /* Truncate the hash to the length of the key */
     out = BUF_MEM_create_init(digest->data, key_len);
@@ -115,19 +125,12 @@ err:
 }
 
 BUF_MEM *
-kdf_pi(const PACE_SEC *pi, const BUF_MEM *nonce, const KA_CTX *ctx, EVP_MD_CTX *md_ctx)
-{
-    BUF_MEM * out;
-
-    out = kdf(pi->encoded, nonce, htonl(KDF_PI_COUNTER), ctx, md_ctx);
-
-    return out;
-}
-
-BUF_MEM *
 kdf_enc(const BUF_MEM *nonce, const KA_CTX *ctx, EVP_MD_CTX *md_ctx)
 {
-    check_return(ctx, "Invalid arguments");
+    if(!ctx) {
+        printf("Invalid arguments\n");
+        return NULL;
+    }
 
     return kdf(ctx->shared_secret, nonce, htonl(KDF_ENC_COUNTER), ctx, md_ctx);
 }
@@ -135,7 +138,10 @@ kdf_enc(const BUF_MEM *nonce, const KA_CTX *ctx, EVP_MD_CTX *md_ctx)
 BUF_MEM *
 kdf_mac(const BUF_MEM *nonce, const KA_CTX *ctx, EVP_MD_CTX *md_ctx)
 {
-    check_return(ctx, "Invalid arguments");
+    if(!ctx) {
+        printf("Invalid arguments\n");
+        return NULL;
+    }
 
     return kdf(ctx->shared_secret, nonce, htonl(KDF_MAC_COUNTER), ctx, md_ctx);
 }

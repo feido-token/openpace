@@ -42,13 +42,9 @@
  * @author Dominik Oepen <oepen@informatik.hu-berlin.de>
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include "eac_err.h"
 #include "eac_lib.h"
-#include "ssl_compat.h"
+#include "ca_lib.h"
 
 CA_CTX *
 CA_CTX_new(void)
@@ -62,7 +58,6 @@ CA_CTX_new(void)
             OPENSSL_free(ctx);
             return NULL;
     }
-    ctx->lookup_csca_cert = EAC_get_default_csca_lookup();
 
     return ctx;
 }

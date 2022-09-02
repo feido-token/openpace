@@ -43,17 +43,11 @@
  * @author Dominik Oepen <oepen@informatik.hu-berlin.de>
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
-#include "eac_asn1.h"
 #include "eac_dh.h"
 #include "eac_ecdh.h"
 #include "eac_err.h"
 #include "eac_util.h"
 #include "misc.h"
-#include "ssl_compat.h"
 #include <eac/eac.h>
 #include <openssl/bio.h>
 #include <openssl/crypto.h>
@@ -80,16 +74,6 @@
 static BUF_MEM *
 cipher(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *type, ENGINE *impl,
         const unsigned char *key, const unsigned char *iv, int enc, const BUF_MEM * in);
-static EVP_PKEY *
-EVP_PKEY_from_pubkey(EVP_PKEY *key, const BUF_MEM *pub, BN_CTX *bn_ctx);
-/**
- * @brief Computes the authentication token over the other parties public key
- * using the MAC key derived during PACE
- *
- */
-static BUF_MEM *
-compute_authentication_token(int protocol, const KA_CTX *ka_ctx, EVP_PKEY *opp_key,
-        BN_CTX *bn_ctx, enum eac_tr_version tr_version);
 /**
  * @brief Convert an ECDSA signature from plain format to X9.62 format
  *
@@ -321,10 +305,6 @@ err:
     return NULL;
 }
 
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L
-#include <openssl/provider.h>
-#endif
-
 BUF_MEM *
 retail_mac_des(const BUF_MEM * key, const BUF_MEM * in)
 {
@@ -334,11 +314,6 @@ retail_mac_des(const BUF_MEM * key, const BUF_MEM * in)
     size_t len;
 
     check(key, "Invalid arguments");
-
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L
-    OSSL_PROVIDER *legacy;
-    legacy = OSSL_PROVIDER_load(NULL, "legacy");
-#endif
 
     len = EVP_CIPHER_block_size(EVP_des_cbc());
     check(key->length >= 2*len, "Key too short");
@@ -378,9 +353,6 @@ retail_mac_des(const BUF_MEM * key, const BUF_MEM * in)
     BUF_MEM_free(c_tmp);
     BUF_MEM_free(d_tmp);
     EVP_CIPHER_CTX_free(ctx);
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L
-    OSSL_PROVIDER_unload(legacy);
-#endif
 
     return mac;
 
@@ -393,10 +365,6 @@ err:
         BUF_MEM_free(d_tmp);
     if (ctx)
         EVP_CIPHER_CTX_free(ctx);
-#if OPENSSL_VERSION_NUMBER >= 0x30000000L
-    if (legacy)
-        OSSL_PROVIDER_unload(legacy);
-#endif
 
     return NULL;
 }
@@ -696,107 +664,6 @@ err:
     return NULL;
 }
 
-static EVP_PKEY *
-EVP_PKEY_from_pubkey(EVP_PKEY *key, const BUF_MEM *pub, BN_CTX *bn_ctx)
-{
-    EVP_PKEY *out = NULL;
-
-    check(pub, "Invalid arguments");
-
-    out = EVP_PKEY_dup(key);
-    check(out, "");
-
-    if (!EVP_PKEY_set_keys(out, NULL, 0,
-                (const unsigned char *) pub->data, pub->length, bn_ctx)) {
-        EVP_PKEY_free(out);
-        out = NULL;
-        goto err;
-    }
-
-err:
-    return out;
-}
-
-BUF_MEM *
-get_authentication_token(int protocol, const KA_CTX *ka_ctx, BN_CTX *bn_ctx,
-                   enum eac_tr_version tr_version, const BUF_MEM *pub_opp)
-{
-    BUF_MEM *out = NULL;
-    EVP_PKEY *opp_key = NULL;
-
-    check(ka_ctx, "Invalid arguments");
-
-    opp_key = EVP_PKEY_from_pubkey(ka_ctx->key, pub_opp,
-            bn_ctx);
-    if (!opp_key)
-        goto err;
-
-
-    out = compute_authentication_token(protocol, ka_ctx, opp_key,
-            bn_ctx, tr_version);
-
-err:
-    EVP_PKEY_free(opp_key);
-
-    return out;
-}
-
-BUF_MEM *
-compute_authentication_token(int protocol, const KA_CTX *ka_ctx, EVP_PKEY *opp_key,
-        BN_CTX *bn_ctx, enum eac_tr_version tr_version)
-{
-    BUF_MEM *asn1 = NULL, *out = NULL, *pad =NULL;
-
-    check(ka_ctx, "Invalid arguments");
-
-    asn1 = asn1_pubkey(protocol, opp_key, bn_ctx, tr_version);
-
-    /* ISO 9797-1 algorithm 3 retail MAC now needs extra padding (padding method 2) */
-    if (EVP_CIPHER_nid(ka_ctx->cipher) == NID_des_ede_cbc) {
-        pad = add_iso_pad(asn1, EVP_CIPHER_block_size(ka_ctx->cipher));
-        if (!pad)
-            goto err;
-        out = authenticate(ka_ctx, pad);
-    } else {
-        out = authenticate(ka_ctx, asn1);
-    }
-
-err:
-    if (asn1)
-        BUF_MEM_free(asn1);
-    if (pad)
-        BUF_MEM_free(pad);
-
-    return out;
-}
-
-int
-verify_authentication_token(int protocol, const KA_CTX *ka_ctx, BN_CTX *bn_ctx,
-                   enum eac_tr_version tr_version, const BUF_MEM *token)
-{
-    int rv;
-    BUF_MEM *token_verify = NULL;
-
-    if (!ka_ctx || !token) {
-        log_err("Invalid arguments");
-        return -1;
-    }
-
-    token_verify = compute_authentication_token(protocol, ka_ctx, ka_ctx->key,
-                    bn_ctx, tr_version);
-    if (!token_verify)
-        return -1;
-
-    if (token_verify->length != token->length ||
-            CRYPTO_memcmp(token_verify->data, token->data, token_verify->length))
-        rv = 0;
-    else
-        rv = 1;
-
-    BUF_MEM_free(token_verify);
-
-    return rv;
-}
 
 BUF_MEM *
 Comp(EVP_PKEY *key, const BUF_MEM *pub, BN_CTX *bn_ctx, EVP_MD_CTX *md_ctx)
@@ -806,10 +673,19 @@ Comp(EVP_PKEY *key, const BUF_MEM *pub, BN_CTX *bn_ctx, EVP_MD_CTX *md_ctx)
     EC_POINT *ecp = NULL;
     EC_KEY *ec = NULL;
     BIGNUM *x = NULL, *y = NULL;
+    BN_CTX *tmp_bn_ctx = NULL;
+
+    if (bn_ctx) {
+        tmp_bn_ctx = bn_ctx;
+    } else {
+        tmp_bn_ctx = BN_CTX_new();
+        if (!tmp_bn_ctx)
+            goto err;
+    }
 
     check((key && pub), "Invalid arguments");
 
-    BN_CTX_start(bn_ctx);
+    BN_CTX_start(tmp_bn_ctx);
     switch (EVP_PKEY_base_id(key)) {
         case EVP_PKEY_DH:
         case EVP_PKEY_DHX:
@@ -823,13 +699,13 @@ Comp(EVP_PKEY *key, const BUF_MEM *pub, BN_CTX *bn_ctx, EVP_MD_CTX *md_ctx)
 
             group = EC_KEY_get0_group(ec);
             ecp = EC_POINT_new(group);
-            x = BN_CTX_get(bn_ctx);
-            y = BN_CTX_get(bn_ctx);
+            x = BN_CTX_get(tmp_bn_ctx);
+            y = BN_CTX_get(tmp_bn_ctx);
 
             if(!ecp || !x || !y
                     || !EC_POINT_oct2point(group, ecp,
-                        (unsigned char *) pub->data, pub->length, bn_ctx)
-                    || !EC_POINT_get_affine_coordinates(group, ecp, x, y, bn_ctx))
+                        (unsigned char *) pub->data, pub->length, tmp_bn_ctx)
+                    || !EC_POINT_get_affine_coordinates(group, ecp, x, y, tmp_bn_ctx))
                 goto err;
 
             out = BUF_MEM_create(BN_num_bytes(x));
@@ -838,7 +714,7 @@ Comp(EVP_PKEY *key, const BUF_MEM *pub, BN_CTX *bn_ctx, EVP_MD_CTX *md_ctx)
             break;
 
         default:
-            log_err("Unknown protocol");
+            printf("Unknown protocol\n");
             goto err;
     }
 
@@ -849,7 +725,10 @@ err:
      * structure */
     if (ec)
         EC_KEY_free(ec);
-    BN_CTX_end(bn_ctx);
+    BN_CTX_end(tmp_bn_ctx);
+
+    if (tmp_bn_ctx && !bn_ctx)
+        BN_CTX_free(tmp_bn_ctx);
 
     return out;
 }
@@ -860,7 +739,7 @@ int EVP_PKEY_set_std_dp(EVP_PKEY *key, int stnd_dp) {
     EC_KEY *ec = NULL;
 
     if (!key) {
-        log_err("Invalid arguments");
+        printf("Invalid arguments\n");
         return 0;
     }
 
